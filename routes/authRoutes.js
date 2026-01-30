@@ -1,5 +1,5 @@
 import express from "express";
-import { register, login, registerTeacher } from "../controllers/authController.js";
+import { register, login, registerTeacher, resetPassword } from "../controllers/authController.js";
 // import { register, login, registerTeacher, verifyEmail, verifyLoginCode } from "../controllers/authController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 import { pool } from "../config/db.js";
