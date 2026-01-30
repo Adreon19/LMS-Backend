@@ -332,3 +332,41 @@ export const login = async (req, res) => {
 //         return res.status(500).json({ message: "Server error", error: err.message });
 //     }
 // };
+
+// =============================
+//      RESET PASSWORD (ADMIN)
+// =============================
+export const resetPassword = async (req, res) => {
+    try {
+        const { email, newPassword, confirmPassword } = req.body;
+
+        if (!email || !newPassword || !confirmPassword) {
+            return res.status(400).json({ message: "All fields are required" });
+        }
+
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ message: "Passwords do not match" });
+        }
+
+        const user = await findUserByEmail(email);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // hash password baru
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        // update password di DB
+        await updateUser(email, {
+            password: hashedPassword
+        });
+
+        return res.json({
+            message: "Password successfully reset"
+        });
+
+    } catch (err) {
+        console.error("RESET PASSWORD ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
+    }
+};

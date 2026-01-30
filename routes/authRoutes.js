@@ -9,6 +9,7 @@ const router = express.Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/register-teacher", registerTeacher);
+router.put("/reset-password", resetPassword);
 // router.post("/verify-email", verifyEmail);
 // router.post("/verify-login-code", verifyLoginCode);
 
