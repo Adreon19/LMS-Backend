@@ -35,38 +35,67 @@ import jawabanSiswa from "./routes/jawabanSiswaRoutes.js";
 import rombelNumber from "./routes/rombelNumRoutes.js";
 import maintenanceMiddleware from "./middleware/maintanceMiddleware.js";
 import maintenanceRoutes from "./routes/maintananceRoute.js";
+import cron from "node-cron";
+import { pool } from "./config/db.js";
 
 dotenv.config();
 const app = express();
-app.use(cors({
+app.use(
+  cors({
     origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-}));
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 // handle preflight OPTIONS untuk semua route
 app.use((req, res, next) => {
-    if (req.method === "OPTIONS") {
-        res.sendStatus(204);
-    } else {
-        next();
-    }
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+  } else {
+    next();
+  }
 });
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Jadwal: 00:00 setiap hari
+cron.schedule("0 0 * * *", async () => {
+  console.log(
+    "--- Menjalankan Cron: Reset Kode Kelas Harian (Tengah Malam) ---",
+  );
+  try {
+    const { rows } = await pool.query("SELECT id FROM kelas");
+
+    for (const row of rows) {
+      // Menghasilkan 6 digit angka acak murni (misal: 482930)
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let newCode = "";
+      for (let i = 0; i < 6; i++) {
+        newCode += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+
+      await pool.query("UPDATE kelas SET kode_kelas = $1 WHERE id = $2", [
+        newCode,
+        row.id,
+      ]);
+    }
+
+    console.log(`Berhasil reset ${rows.length} kode kelas pada jam 00:00.`);
+  } catch (err) {
+    console.error("Gagal menjalankan cron harian:", err.message);
+  }
+});
 
 // Jika kamu pakai multer, pastikan storage-nya juga benar
 // const upload = multer({
 //     limits: { fileSize: 50 * 1024 * 1024 }
 // });
 
-
 // setup dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOAD_ROOT = "/var/www/uploads";
-
 
 // ====================== ROUTES ======================
 app.use("/api/maintenance", maintenanceRoutes);
@@ -103,30 +132,35 @@ app.use("/api/jawaban-siswa", jawabanSiswa);
 app.use("/api/gambar-soal", uploadGambarSoal);
 
 app.use(
-    "/uploads",
-    express.static("/var/www/uploads", {
-        setHeaders: (res) => {
-            res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-            res.setHeader("Pragma", "no-cache");
-            res.setHeader("Expires", "0");
-        },
-    })
+  "/uploads",
+  express.static("/var/www/uploads", {
+    setHeaders: (res) => {
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate",
+      );
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    },
+  }),
 );
-
 
 // ================== SERVER START ==================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, "0.0.0.0", () => console.log(` Server running on port ${PORT}`));
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(` Server running on port ${PORT}`),
+);
 
 app.get("/api", (req, res) => {
-    res.send("Backend is running 🚀");
+  res.send("Backend is running 🚀");
 });
 
 // Pastikan ini ditaruh PALING BAWAH setelah semua route
 app.use((err, req, res, next) => {
-    console.error("🔥 Unhandled Error:", err);
+  console.error("🔥 Unhandled Error:", err);
 
-    res.status(500).json({
-        error: "An unexpected error occurred on the server. Please try again later.",
-    });
+  res.status(500).json({
+    error:
+      "An unexpected error occurred on the server. Please try again later.",
+  });
 });

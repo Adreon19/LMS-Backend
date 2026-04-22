@@ -8,54 +8,54 @@ const router = express.Router();
 // GET ALL RPK (FILTER BY GURU ID)
 // ===========================
 router.get("/all-rpk/:id", verifyToken, async (req, res) => {
-    try {
-        const guruId = req.params.id;
+  try {
+    const guruId = req.params.id;
 
-        const result = await pool.query(`
+    const result = await pool.query(
+      `
             SELECT 
                 rpk.*,
-                r.name_rombel,
-                r.colab_class,
-                g.grade_lvl,
-                m.nama_jurusan AS major,
+                nr.number AS name_rombel, -- AMBIL DARI NUMBER_ROMBEL
+                gl.grade_lvl,
                 dm.nama_mapel AS subject,
                 p.phase,
                 t.username AS teacher_name,
                 i.name AS instructor_name
             FROM rpk_db rpk
-            LEFT JOIN kelas k         ON rpk.kelas_id = k.id
-            LEFT JOIN rombel r        ON r.id = k.rombel_id
-            LEFT JOIN db_mapel dm     ON dm.id = k.id_mapel
-            LEFT JOIN grade_level g   ON r.grade_id = g.id
-            LEFT JOIN jurusan m       ON r.jurusan_id = m.id
-            LEFT JOIN db_phase p      ON rpk.phase_id = p.id
-            LEFT JOIN users t         ON rpk.guru_id = t.id
-            LEFT JOIN db_guru i       ON rpk.instructor = i.id
+            LEFT JOIN kelas k            ON rpk.kelas_id = k.id
+            LEFT JOIN db_mapel dm        ON k.id_mapel = dm.id
+            LEFT JOIN rombel r           ON k.rombel_id = r.id
+            LEFT JOIN number_rombel nr   ON r.name_rombel = nr.id 
+            LEFT JOIN grade_level gl     ON r.grade_id = gl.id
+            LEFT JOIN db_phase p         ON rpk.phase_id = p.id
+            LEFT JOIN users t            ON rpk.guru_id = t.id
+            LEFT JOIN db_guru i          ON rpk.instructor = i.id
             WHERE rpk.guru_id = $1
-            ORDER BY rpk.created_at DESC
-        `, [guruId]);
+            ORDER BY rpk.hari_tanggal DESC, rpk.created_at DESC
+        `,
+      [guruId],
+    );
 
-        res.json(result.rows);
-    } catch (err) {
-        console.error("Error fetch all RPK:", err);
-        res.status(500).json({ error: err.message });
-    }
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetch all RPK:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ===========================
 // GET DETAIL RPK BY ID
 // ===========================
 router.get("/:id", verifyToken, async (req, res) => {
-    try {
-        const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-        const result = await pool.query(`
+    const result = await pool.query(
+      `
             SELECT 
                 rpk.*,
-                r.name_rombel,
-                r.colab_class,
-                g.grade_lvl,
-                m.nama_jurusan AS major,
+                nr.number AS name_rombel,  
+                gl.grade_lvl,               
                 dm.nama_mapel  AS subject,
                 p.phase,
                 t.username     AS teacher_name,
@@ -81,10 +81,10 @@ router.get("/:id", verifyToken, async (req, res) => {
 
             FROM rpk_db rpk
             LEFT JOIN kelas k           ON rpk.kelas_id = k.id
-            LEFT JOIN rombel r          ON r.id = k.rombel_id
-            LEFT JOIN db_mapel dm       ON dm.id = k.id_mapel
-            LEFT JOIN grade_level g     ON r.grade_id = g.id
-            LEFT JOIN jurusan m         ON r.jurusan_id = m.id
+            LEFT JOIN db_mapel dm       ON k.id_mapel = dm.id
+            LEFT JOIN rombel r          ON k.rombel_id = r.id
+            LEFT JOIN number_rombel nr  ON r.name_rombel = nr.id 
+            LEFT JOIN grade_level gl    ON r.grade_id = gl.id
             LEFT JOIN db_phase p        ON rpk.phase_id = p.id
             LEFT JOIN users t           ON rpk.guru_id = t.id
             LEFT JOIN db_guru i         ON rpk.instructor = i.id
@@ -94,34 +94,112 @@ router.get("/:id", verifyToken, async (req, res) => {
 
             WHERE rpk.id = $1
             LIMIT 1;
+        `,
+      [id],
+    );
 
-        `, [id]);
-
-        res.json(result.rows[0]);
-    } catch (error) {
-        console.error("Error get detail RPK:", error);
-        res.status(500).json({ message: "Internal Server error" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "RPK not found" });
     }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error get detail RPK:", error);
+    res.status(500).json({ message: "Internal Server error" });
+  }
 });
 
+// ===========================
+// GET RPK FOR PARENT DASHBOARD
+// ===========================
+router.get("/parent/dashboard", verifyToken, async (req, res) => {
+  try {
+    // 1. Ambil SEMUA RPK hari ini
+    const todayResult = await pool.query(
+      `
+        SELECT 
+            rpk.*, 
+            dm.nama_mapel AS subject, 
+            t.username AS teacher_name,
+            gl.grade_lvl,
+            nr.number AS name_rombel
+        FROM rpk_db rpk
+        LEFT JOIN kelas k ON rpk.kelas_id = k.id
+        LEFT JOIN db_mapel dm ON k.id_mapel = dm.id
+        LEFT JOIN rombel r ON k.rombel_id = r.id
+        LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
+        LEFT JOIN grade_level gl ON r.grade_id = gl.id
+        LEFT JOIN users t ON rpk.guru_id = t.id
+        WHERE rpk.hari_tanggal = CURRENT_DATE
+        ORDER BY rpk.waktu ASC
+      `,
+    );
+
+    // 2. Ambil Riwayat (Hari-hari sebelumnya)
+    const recentResult = await pool.query(
+      `
+      SELECT 
+            rpk.*, 
+            dm.nama_mapel AS subject, 
+            gl.grade_lvl, 
+            nr.number AS name_rombel,
+            t.username AS teacher_name
+        FROM rpk_db rpk
+        LEFT JOIN kelas k ON rpk.kelas_id = k.id
+        LEFT JOIN db_mapel dm ON k.id_mapel = dm.id
+        LEFT JOIN rombel r ON k.rombel_id = r.id
+        LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
+        LEFT JOIN grade_level gl ON r.grade_id = gl.id
+        LEFT JOIN users t ON rpk.guru_id = t.id
+        WHERE rpk.hari_tanggal < CURRENT_DATE
+        ORDER BY rpk.hari_tanggal DESC, rpk.waktu DESC
+        LIMIT 5
+      `,
+    );
+
+    res.json({
+      today: todayResult.rows,
+      recent: recentResult.rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ===========================
-// CREATE 
+// CREATE
 // ===========================
 router.post("/", verifyToken, async (req, res) => {
-    try {
-        const guruId = req.users.id;
-        const {
-            tutor, hari_tanggal, waktu, tujuan_pembelajaran,
-            lintas_disiplin_ilmu, pemanfaatan_digital,
-            kemitraan_pembelajaran,
-            dpl_1, dpl_2, dpl_3, dpl_4, dpl_5, dpl_6, dpl_7, dpl_8,
-            phase_id, rombel_id, kelas_ids, instructor,
-            memahami_id, mengaplikasikan_id, merefleksi_id
-        } = req.body;
+  try {
+    const guruId = req.users.id;
+    const {
+      tutor,
+      hari_tanggal,
+      waktu,
+      tujuan_pembelajaran,
+      lintas_disiplin_ilmu,
+      pemanfaatan_digital,
+      kemitraan_pembelajaran,
+      dpl_1,
+      dpl_2,
+      dpl_3,
+      dpl_4,
+      dpl_5,
+      dpl_6,
+      dpl_7,
+      dpl_8,
+      phase_id,
+      rombel_id,
+      kelas_ids,
+      instructor,
+      memahami_id,
+      mengaplikasikan_id,
+      merefleksi_id,
+    } = req.body;
 
-        for (const kelasId of kelas_ids) {
-            await pool.query(`
+    for (const kelasId of kelas_ids) {
+      await pool.query(
+        `
                 INSERT INTO rpk_db (
                     tutor, hari_tanggal, waktu, tujuan_pembelajaran,
                     lintas_disiplin_ilmu, pemanfaatan_digital, kemitraan_pembelajaran,
@@ -135,51 +213,76 @@ router.post("/", verifyToken, async (req, res) => {
                     $16,$17,$18,$19,$20,$21,$22,$23
                     )
                 RETURNING *
-                `, [
-                tutor, hari_tanggal, waktu, tujuan_pembelajaran,
-                lintas_disiplin_ilmu, pemanfaatan_digital, kemitraan_pembelajaran,
-                dpl_1, dpl_2, dpl_3, dpl_4, dpl_5, dpl_6, dpl_7, dpl_8,
-                phase_id, rombel_id, kelasId, guruId, instructor,
-                memahami_id, mengaplikasikan_id, merefleksi_id
-            ]);
-
-        }
-        res.json({ message: "Learning Plan created successfully" });
-    } catch (err) {
-        console.error("Error create RPK:", err);
-        res.status(500).json({ error: err.message });
+                `,
+        [
+          tutor,
+          hari_tanggal,
+          waktu,
+          tujuan_pembelajaran,
+          lintas_disiplin_ilmu,
+          pemanfaatan_digital,
+          kemitraan_pembelajaran,
+          dpl_1,
+          dpl_2,
+          dpl_3,
+          dpl_4,
+          dpl_5,
+          dpl_6,
+          dpl_7,
+          dpl_8,
+          phase_id,
+          rombel_id,
+          kelasId,
+          guruId,
+          instructor,
+          memahami_id,
+          mengaplikasikan_id,
+          merefleksi_id,
+        ],
+      );
     }
+    res.json({ message: "Learning Plan created successfully" });
+  } catch (err) {
+    console.error("Error create RPK:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
-
 
 // ===========================
 // UPDATE (hapus mapel_id juga)
 // ===========================
 router.put("/:id", verifyToken, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const guruId = req.users.id; // ✅ dari token
+  try {
+    const { id } = req.params;
+    const guruId = req.users.id; // ✅ dari token
 
-        const {
-            tutor,
-            hari_tanggal,
-            waktu,
-            tujuan_pembelajaran,
-            lintas_disiplin_ilmu,
-            pemanfaatan_digital,
-            kemitraan_pembelajaran,
-            dpl_1, dpl_2, dpl_3, dpl_4,
-            dpl_5, dpl_6, dpl_7, dpl_8,
-            phase_id,
-            rombel_id,
-            kelas_id,
-            instructor,
-            memahami_id,
-            mengaplikasikan_id,
-            merefleksi_id
-        } = req.body;
+    const {
+      tutor,
+      hari_tanggal,
+      waktu,
+      tujuan_pembelajaran,
+      lintas_disiplin_ilmu,
+      pemanfaatan_digital,
+      kemitraan_pembelajaran,
+      dpl_1,
+      dpl_2,
+      dpl_3,
+      dpl_4,
+      dpl_5,
+      dpl_6,
+      dpl_7,
+      dpl_8,
+      phase_id,
+      rombel_id,
+      kelas_id,
+      instructor,
+      memahami_id,
+      mengaplikasikan_id,
+      merefleksi_id,
+    } = req.body;
 
-        const result = await pool.query(`
+    const result = await pool.query(
+      `
             UPDATE rpk_db
             SET
                 tutor = COALESCE($1, tutor),
@@ -211,54 +314,61 @@ router.put("/:id", verifyToken, async (req, res) => {
             WHERE id = $23
               AND guru_id = $24
             RETURNING *;
-        `, [
-            tutor,
-            hari_tanggal,
-            waktu,
-            tujuan_pembelajaran,
-            lintas_disiplin_ilmu,
-            pemanfaatan_digital,
-            kemitraan_pembelajaran,
+        `,
+      [
+        tutor,
+        hari_tanggal,
+        waktu,
+        tujuan_pembelajaran,
+        lintas_disiplin_ilmu,
+        pemanfaatan_digital,
+        kemitraan_pembelajaran,
 
-            dpl_1, dpl_2, dpl_3, dpl_4,
-            dpl_5, dpl_6, dpl_7, dpl_8,
+        dpl_1,
+        dpl_2,
+        dpl_3,
+        dpl_4,
+        dpl_5,
+        dpl_6,
+        dpl_7,
+        dpl_8,
 
-            phase_id,
-            rombel_id,
-            kelas_id,
-            instructor,
+        phase_id,
+        rombel_id,
+        kelas_id,
+        instructor,
 
-            memahami_id,
-            mengaplikasikan_id,
-            merefleksi_id,
+        memahami_id,
+        mengaplikasikan_id,
+        merefleksi_id,
 
-            id,
-            guruId
-        ]);
+        id,
+        guruId,
+      ],
+    );
 
-        if (result.rows.length === 0) {
-            return res.status(404).json({ message: "RPK not found or unauthorized" });
-        }
-
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error("Error updating RPK:", err);
-        res.status(500).json({ error: err.message });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "RPK not found or unauthorized" });
     }
-});
 
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error updating RPK:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ===========================
 // DELETE
 // ===========================
 router.delete("/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-        await pool.query(`DELETE FROM rpk_db WHERE id = $1`, [id]);
-        res.json({ message: "Learning Plan deleted" });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+  try {
+    const { id } = req.params;
+    await pool.query(`DELETE FROM rpk_db WHERE id = $1`, [id]);
+    res.json({ message: "Learning Plan deleted" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

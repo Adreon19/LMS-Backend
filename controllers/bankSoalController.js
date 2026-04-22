@@ -18,7 +18,6 @@ export const getPenugasan = [
                         ARRAY_AGG(
                             DISTINCT CONCAT(
                             gl.grade_lvl, ' ',
-                            mj.nama_jurusan, ' ',
                             nr.number, ' - ',
                             dm.nama_mapel
                             )
@@ -35,7 +34,6 @@ export const getPenugasan = [
                 LEFT JOIN rombel r ON k.rombel_id = r.id
                 LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
                 LEFT JOIN grade_level gl ON r.grade_id = gl.id
-                LEFT JOIN jurusan mj ON r.jurusan_id = mj.id
                 LEFT JOIN db_mapel dm ON k.id_mapel = dm.id
 
                 WHERE bs.guru_id = $1
