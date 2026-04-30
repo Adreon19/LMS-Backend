@@ -114,34 +114,34 @@ router.get("/:id", async (req, res) => {
 });
 
 /* ============================================
-   GET Student Dashboard
+   GET Student Dashboard 
 ============================================ */
 router.get("/student/dashboard", verifyToken, async (req, res) => {
   try {
     const userId = Number(req.users.id);
+
+    // 1. Ambil data profil siswa (Grade & Rombel)
+    const userProfileQuery = await pool.query(
+      `SELECT u.id, u.rombel_id, r.grade_id 
+       FROM users u 
+       LEFT JOIN rombel r ON u.rombel_id = r.id 
+       WHERE u.id = $1`,
+      [userId],
+    );
+
     const { rows } = await pool.query(
-      `
-      SELECT
-        k.id,
-        k.link_wallpaper_kelas,
-        k.kode_kelas,
-        m.nama_mapel,
-        u.id AS guru_id,
-        u.username AS guru_name,
-        u.photo_url AS guru_photo,
-        gl.grade_lvl,
-        nr.number AS name_rombel,
-        (kd.user_id IS NOT NULL) AS sudah_diikuti
-      FROM kelas k
-      LEFT JOIN db_mapel m ON k.id_mapel = m.id
-      LEFT JOIN users u ON k.guru_id = u.id
-      LEFT JOIN rombel r ON k.rombel_id = r.id
-      LEFT JOIN grade_level gl ON r.grade_id = gl.id
-      LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
-      LEFT JOIN kelas_diikuti kd 
-        ON kd.kelas_id = k.id AND kd.user_id = $1
-      ORDER BY k.id DESC
-    `,
+      `SELECT k.id, k.link_wallpaper_kelas, k.kode_kelas, m.nama_mapel, 
+              u.id AS guru_id, u.username AS guru_name, u.photo_url AS guru_photo, 
+              gl.grade_lvl, r.id AS rombel_id, r.grade_id, -- Tambahkan field ini
+              nr.number AS name_rombel, (kd.user_id IS NOT NULL) AS sudah_diikuti
+       FROM kelas k
+       LEFT JOIN db_mapel m ON k.id_mapel = m.id
+       LEFT JOIN users u ON k.guru_id = u.id
+       LEFT JOIN rombel r ON k.rombel_id = r.id
+       LEFT JOIN grade_level gl ON r.grade_id = gl.id
+       LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
+       LEFT JOIN kelas_diikuti kd ON kd.kelas_id = k.id AND kd.user_id = $1
+       ORDER BY k.id DESC`,
       [userId],
     );
 
@@ -158,6 +158,8 @@ router.get("/student/dashboard", verifyToken, async (req, res) => {
         guru_name: row.guru_name,
         guru_photo: row.guru_photo,
         rombel: {
+          id: row.rombel_id,
+          grade_id: row.grade_id,
           grade_lvl: row.grade_lvl ?? null,
           name_rombel: row.name_rombel ?? null,
         },
@@ -165,7 +167,12 @@ router.get("/student/dashboard", verifyToken, async (req, res) => {
       };
       row.sudah_diikuti ? joined.push(kelas) : other.push(kelas);
     }
-    res.json({ joined, other });
+
+    res.json({
+      userProfile: userProfileQuery.rows[0],
+      joined,
+      other,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });
@@ -173,24 +180,66 @@ router.get("/student/dashboard", verifyToken, async (req, res) => {
 });
 
 /* ============================================
-   Check Code sebelum bergabung
+   Check code sebelum bergabung
 ============================================ */
 router.get("/check-code/:kode", verifyToken, async (req, res) => {
   try {
     const { kode } = req.params;
+    const userId = req.users.id;
+
     const { rows } = await pool.query(
-      `SELECT k.id, k.link_wallpaper_kelas, k.kode_kelas, m.nama_mapel, u.username as guru_name 
+      `SELECT 
+          k.id AS kelas_id, 
+          m.nama_mapel, 
+          u_guru.username as guru_name,
+          gl_kelas.grade_lvl AS kelas_grade_name,
+          nr_kelas.number AS kelas_rombel_name,
+          gl_user.grade_lvl AS user_grade_name,
+          nr_user.number AS user_rombel_name,
+          r_kelas.grade_id AS kelas_grade_id,
+          r_kelas.name_rombel AS kelas_rombel_val,
+          u_login.grade_id AS user_grade_id,
+          u_login.rombel_id AS user_rombel_val
        FROM kelas k 
        JOIN db_mapel m ON k.id_mapel = m.id 
-       JOIN users u ON k.guru_id = u.id 
+       JOIN users u_guru ON k.guru_id = u_guru.id 
+       JOIN rombel r_kelas ON k.rombel_id = r_kelas.id
+       JOIN grade_level gl_kelas ON r_kelas.grade_id = gl_kelas.id
+       JOIN number_rombel nr_kelas ON r_kelas.name_rombel = nr_kelas.id
+       JOIN users u_login ON u_login.id = $2
+       -- Ambil info rombel user login untuk pesan error
+       LEFT JOIN rombel r_user ON u_login.rombel_id = r_user.id
+       LEFT JOIN grade_level gl_user ON u_login.grade_id = gl_user.id
+       LEFT JOIN number_rombel nr_user ON u_login.rombel_id = nr_user.id
        WHERE k.kode_kelas = $1`,
-      [kode.toUpperCase()],
+      [kode.toUpperCase(), userId],
     );
 
-    if (rows.length === 0)
-      return res.status(404).json({ error: "Kelas tidak ditemukan" });
-    res.json(rows[0]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Class code not found." });
+    }
+
+    const data = rows[0];
+
+    const isGradeMatch = data.kelas_grade_id == data.user_grade_id;
+    const isRombelMatch = data.kelas_rombel_val == data.user_rombel_val;
+
+    if (isGradeMatch && isRombelMatch) {
+      return res.json(data);
+    } else {
+      const userClass = `${data.user_grade_name || data.user_grade_id}-${
+        data.user_rombel_name || data.user_rombel_val
+      }`;
+      const targetClass = `${data.kelas_grade_name || data.kelas_grade_id}-${
+        data.kelas_rombel_name || data.kelas_rombel_val
+      }`;
+
+      return res.status(403).json({
+        message: `Your class (${userClass}) does not match the target class (${targetClass})`,
+      });
+    }
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -205,6 +254,8 @@ router.get("/", verifyToken, async (req, res) => {
       `
             SELECT 
                 k.id,
+                k.rombel_id,
+                k.id_mapel,
                 k.link_wallpaper_kelas,
                 k.kode_kelas,
                 nr.number AS name_rombel,
@@ -268,15 +319,37 @@ router.get("/admin/:id", verifyToken, async (req, res) => {
 
 router.post("/follow/:kelasId", verifyToken, async (req, res) => {
   try {
-    const userId = Number(req.users.id);
-    const kelasId = Number(req.params.kelasId);
-    const { rows } = await pool.query(
-      `INSERT INTO kelas_diikuti (user_id, kelas_id) VALUES ($1, $2) RETURNING *`,
+    const userId = req.users.id;
+    const kelasId = req.params.kelasId;
+
+    console.log(`User ${userId} mencoba join kelas ${kelasId}`);
+
+    if (!kelasId || kelasId === "undefined") {
+      return res.status(400).json({ message: "ID Kelas tidak valid." });
+    }
+
+    const check = await pool.query(
+      `SELECT id FROM kelas_diikuti WHERE user_id = $1 AND kelas_id = $2`,
       [userId, kelasId],
     );
-    res.status(201).json(rows[0]);
+
+    if (check.rows.length > 0) {
+      return res
+        .status(400)
+        .json({ message: "Kamu sudah terdaftar di kelas ini." });
+    }
+
+    await pool.query(
+      `INSERT INTO kelas_diikuti (user_id, kelas_id) VALUES ($1, $2)`,
+      [userId, kelasId],
+    );
+
+    res.status(201).json({ message: "Berhasil bergabung!" });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    console.error("ERROR FOLLOW KELAS:", err);
+    res
+      .status(500)
+      .json({ message: "Gagal memproses permintaan: " + err.message });
   }
 });
 
