@@ -2,7 +2,7 @@ import express from "express";
 import {
   register,
   login,
-  registerTeacher,
+  registerUser,
   resetPassword,
 } from "../controllers/authController.js";
 // import { register, login, registerTeacher, verifyEmail, verifyLoginCode } from "../controllers/authController.js";
@@ -13,10 +13,76 @@ const router = express.Router();
 
 router.post("/register", register);
 router.post("/login", login);
-router.post("/register-teacher", registerTeacher);
+router.post("/register-internal", registerUser);
 router.put("/reset-password", resetPassword);
 // router.post("/verify-email", verifyEmail);
 // router.post("/verify-login-code", verifyLoginCode);
+
+/* ==========================================================================
+   NAIK KELAS MASSAL (ADMIN ONLY)
+   - Mengubah kelas lama menjadi terarsip (is_archived = true) agar tetap muncul di riwayat bawah
+   - Menaikkan grade_id murid aktif dan mengosongkan rombel_id untuk penataan baru
+   - Mengubah murid kelas akhir (kelas 6) menjadi role 'alumni'
+   ========================================================================== */
+router.post("/naik-kelas-massal", verifyToken, async (req, res) => {
+  if (req.users.role !== "admin") {
+    return res
+      .status(403)
+      .json({ message: "Hanya admin yang dapat melakukan aksi ini" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Ambil semua data murid aktif saat ini
+    const { rows: students } = await client.query(
+      "SELECT id, grade_id FROM users WHERE role = 'student'",
+    );
+
+    for (const student of students) {
+      await client.query(
+        `UPDATE kelas_diikuti 
+         SET is_archived = true 
+         WHERE user_id = $1 AND is_archived = false`,
+        [student.id],
+      );
+
+      // Langkah B: Update status tingkatan akademik user di tabel users
+      if (student.grade_id === 6) {
+        await client.query(
+          `UPDATE users 
+           SET role = 'alumni', 
+               grade_id = NULL, 
+               rombel_id = NULL 
+           WHERE id = $1`,
+          [student.id],
+        );
+      } else if (student.grade_id !== null) {
+        const nextGradeId = student.grade_id + 1;
+        await client.query(
+          `UPDATE users 
+           SET grade_id = $1, 
+               rombel_id = NULL 
+           WHERE id = $2`,
+          [nextGradeId, student.id],
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+    res.json({
+      message:
+        "Proses kenaikan kelas massal dan pengarsipan riwayat berhasil dijalankan!",
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error proses kenaikan kelas massal:", error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
 
 // GET all profile
 router.get("/", async (req, res) => {
@@ -39,7 +105,7 @@ router.get("/", async (req, res) => {
      ORDER BY p.id ASC`,
     );
 
-    res.json({ profiles: result.rows }); // <--- kirim hasil ke frontend
+    res.json({ profiles: result.rows });
   } catch (error) {
     console.error("Get all profile error:", error);
     res.status(500).json({ error: error.message });
@@ -94,7 +160,7 @@ router.get("/teacher", async (req, res) => {
     res.json({ profiles: result.rows });
   } catch (error) {
     console.error("Error Get Teacher profile :", error);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -133,11 +199,12 @@ router.get("/student/:id", verifyToken, async (req, res) => {
             u.username, 
             u.photo_url, 
             u.phone_number,
-            r.name_rombel,
+            nr.number AS name_rombel,
             g.grade_lvl 
              FROM users u
              LEFT JOIN rombel  r ON u.rombel_id = r.id
              LEFT JOIN grade_level g ON u.grade_id = g.id
+             LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
              WHERE u.id = $1
              LIMIT 1`,
       [studentId],
@@ -165,7 +232,7 @@ router.put("/profile", verifyToken, async (req, res) => {
       `UPDATE users
        SET username = $1, phone_number = $2, grade_id = $3, rombel_id = $4, teacher_subject = $5
        WHERE id = $6
-       RETURNING id, username, phone_number, grade_id, rombel_id, teacher_subject`, // Tadi ada titik (.) setelah rombel_id
+       RETURNING id, username, phone_number, grade_id, rombel_id, teacher_subject`,
       [username, phone_number, grade_id, rombel_id, teacher_subject, userId],
     );
 
@@ -189,8 +256,6 @@ router.put("/profile/:id", verifyToken, async (req, res) => {
       teacher_subject,
     } = req.body;
 
-    // Perhatikan urutan:
-    // $1:username, $2:phone, $3:photo, $4:grade, $5:rombel, $6:subject, $7:id
     const result = await pool.query(
       `UPDATE users 
        SET username = $1, 
@@ -233,4 +298,5 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 export default router;

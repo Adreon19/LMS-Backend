@@ -34,7 +34,9 @@ import progressMateri from "./routes/progressRoutes.js";
 import jawabanSiswa from "./routes/jawabanSiswaRoutes.js";
 import rombelNumber from "./routes/rombelNumRoutes.js";
 import maintenanceMiddleware from "./middleware/maintanceMiddleware.js";
+import announcementRoutes from "./routes/announcementRoutes.js";
 import maintenanceRoutes from "./routes/maintananceRoute.js";
+import scheduleRoutes from "./routes/schedules.js";
 import cron from "node-cron";
 import { pool } from "./config/db.js";
 
@@ -125,6 +127,8 @@ app.use("/api/timetables-grade-xi", timetableXI);
 app.use("/api/kelas-diikuti", classFollowRoutes);
 app.use("/api/progress-materi", progressMateri);
 app.use("/api/jawaban-siswa", jawabanSiswa);
+app.use("/api/announcements", announcementRoutes);
+app.use("/api/schedule", scheduleRoutes);
 
 // ================== STATIC FILES (UPLOADS) ==================
 app.use("/api/jawaban-siswa", jawabanSiswa);

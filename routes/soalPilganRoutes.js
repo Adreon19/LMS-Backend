@@ -60,6 +60,38 @@ router.post("/", verifyToken, uploadSoalCreate.any(), async (req, res) => {
 });
 
 /* =========================================
+   GET SOAL BY BANK SOAL (Parent View)
+========================================= */
+router.get("/bank/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `SELECT 
+        sp.id,
+        sp.bank_soal_id,
+        bs.judul_penugasan,
+        sp.pertanyaan,
+        sp.pg_a, sp.pg_b, sp.pg_c, sp.pg_d, sp.pg_e,
+        sp.kunci_jawaban,
+        sp.gambar,
+        sp.pertanyaan_essai,
+        sp.gambar_soal_essai
+       FROM soal_pilgan sp
+       LEFT JOIN bank_soal bs ON sp.bank_soal_id = bs.id
+       WHERE sp.bank_soal_id = $1
+       ORDER BY sp.id ASC`,
+      [id],
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("GET SOAL BANK ERROR:", error);
+    res.status(500).json({ message: "Gagal mengambil soal" });
+  }
+});
+
+/* =========================================
    GET SOAL BY BANK SOAL (GURU)
 ========================================= */
 router.get("/:id", verifyToken, async (req, res) => {

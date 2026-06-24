@@ -116,13 +116,14 @@ export const register = async (req, res) => {
 };
 
 // =============================
-//      REGISTER TEACHER
+//       REGISTER USER (GENERAL)
 // =============================
-export const registerTeacher = async (req, res) => {
+export const registerUser = async (req, res) => {
   try {
     const { email, username, password, confirmPassword, role } = req.body;
 
-    if (!email || !username || !password || !confirmPassword)
+    // Tambahkan role ke pengecekan required
+    if (!email || !username || !password || !confirmPassword || !role)
       return res.status(400).json({ message: "All fields are required" });
 
     if (password !== confirmPassword)
@@ -134,34 +135,23 @@ export const registerTeacher = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // const code = generateCode();
-    // const expires = new Date(Date.now() + 10 * 60 * 1000);
-
     const newUser = await createUser(
       email,
       username,
       hashedPassword,
-      role || "teacher",
+      role,
       null,
       null,
     );
 
-    // try {
-    //     await sendEmail({
-    //         to: email,
-    //         subject: "Verify Your Teacher Account",
-    //         text: `Your verification code is: ${code}`
-    //     });
-    // } catch (emailErr) {
-    //     console.error("EMAIL SEND ERROR:", emailErr);
-    // }
-
     return res.json({
-      message: "Teacher registered, verification required",
+      message: `${
+        role.charAt(0).toUpperCase() + role.slice(1)
+      } registered successfully`,
       email: newUser.email,
     });
   } catch (err) {
-    console.error("REGISTER TEACHER ERROR:", err);
+    console.error("REGISTER USER ERROR:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
