@@ -120,7 +120,6 @@ router.get("/student/dashboard", verifyToken, async (req, res) => {
   try {
     const userId = Number(req.users.id);
 
-    // 1. Ambil data profil siswa (Grade & Rombel)
     const userProfileQuery = await pool.query(
       `SELECT u.id, u.rombel_id, r.grade_id 
        FROM users u 
@@ -132,8 +131,10 @@ router.get("/student/dashboard", verifyToken, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT k.id, k.link_wallpaper_kelas, k.kode_kelas, m.nama_mapel, 
               u.id AS guru_id, u.username AS guru_name, u.photo_url AS guru_photo, 
-              gl.grade_lvl, r.id AS rombel_id, r.grade_id, -- Tambahkan field ini
-              nr.number AS name_rombel, (kd.user_id IS NOT NULL) AS sudah_diikuti
+              gl.grade_lvl, r.id AS rombel_id, r.grade_id,
+              nr.number AS name_rombel,
+              (kd.user_id IS NOT NULL) AS sudah_diikuti,
+              kd.is_archived
        FROM kelas k
        LEFT JOIN db_mapel m ON k.id_mapel = m.id
        LEFT JOIN users u ON k.guru_id = u.id
@@ -164,6 +165,7 @@ router.get("/student/dashboard", verifyToken, async (req, res) => {
           name_rombel: row.name_rombel ?? null,
         },
         sudah_diikuti: row.sudah_diikuti,
+        is_archived: row.is_archived ?? false,
       };
       row.sudah_diikuti ? joined.push(kelas) : other.push(kelas);
     }

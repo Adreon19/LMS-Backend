@@ -232,6 +232,45 @@ router.get("/all", verifyToken, async (req, res) => {
 });
 
 /* =========================
+   GET ASSIGNMENTS BY STUDENT ID (FOR PARENTS)
+========================= */
+router.get("/student-assignments/:studentId", verifyToken, async (req, res) => {
+  try {
+    const { studentId } = req.params;
+
+    const q = `
+      SELECT * FROM (
+        SELECT DISTINCT ON (js.bank_soal_id)
+            js.bank_soal_id,
+            js.nilai,
+            js.created_at,
+            bs.judul_penugasan,
+            m.nama_mapel,
+            gl.grade_lvl,
+            nr.number AS rombel_name
+        FROM jawaban_siswa js
+        JOIN bank_soal bs ON js.bank_soal_id = bs.id
+        LEFT JOIN module_pembelajaran mp ON mp.bank_soal_id = bs.id
+        LEFT JOIN kelas k ON mp.kelas_id = k.id
+        LEFT JOIN db_mapel m ON k.id_mapel = m.id
+        LEFT JOIN rombel r ON k.rombel_id = r.id
+        LEFT JOIN grade_level gl ON r.grade_id = gl.id
+        LEFT JOIN number_rombel nr ON r.name_rombel = nr.id
+        WHERE js.user_id = $1
+        ORDER BY js.bank_soal_id, js.created_at DESC
+      ) AS subquery
+      ORDER BY created_at DESC; 
+    `;
+
+    const result = await pool.query(q, [studentId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error assignments:", err.message);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+/* =========================
    UPDATE NILAI
 ========================= */
 router.put("/nilai", verifyToken, async (req, res) => {

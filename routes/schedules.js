@@ -63,7 +63,7 @@ router.get("/now", verifyToken, async (req, res) => {
 
     if (rows.length === 0) {
       return res.json({
-        slot_name: "Luar Jam Sekolah",
+        slot_name: "Outside School Hours",
         is_global: false,
         schedule: [],
       });
