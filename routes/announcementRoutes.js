@@ -107,6 +107,34 @@ router.get("/", verifyToken, async (req, res) => {
 });
 
 /* ============================================
+   GET Single Announcement
+   Endpoint: GET /api/announcements/:id
+============================================ */
+router.get("/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `
+      SELECT a.*, u.username as author_name
+      FROM announcements a
+      LEFT JOIN users u ON a.author_id = u.id
+      WHERE a.id = $1
+    `,
+      [id],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Announcement not found" });
+    }
+
+    res.json({ announcement: rows[0] });
+  } catch (err) {
+    console.error("ERROR GET ANNOUNCEMENT:", err);
+    res.status(500).json({ error: "Server error: Gagal mengambil pengumuman" });
+  }
+});
+
+/* ============================================
    PUT Update Announcement
    Endpoint: PUT /api/announcements/:id
 ============================================ */

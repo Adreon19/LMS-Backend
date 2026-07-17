@@ -125,15 +125,15 @@ router.get("/siswa/:userId/kelas/:kelasId", verifyToken, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-          mp.id, mp.judul, mp.video_url, mp.deskripsi,
-          mp.judul_penugasan, mp.bank_soal_id, mp.created_at,
-          p.langkah_aktif, p.pdf_selesai, p.video_selesai, p.status_selesai,
-          u.photo_url AS guru_foto
-       FROM module_pembelajaran mp
-       LEFT JOIN progress_materi p ON p.materi_id = mp.id AND p.user_id = $1
-       LEFT JOIN users u ON u.id = mp.guru_id
-       WHERE mp.kelas_id = $2
-       ORDER BY mp.created_at DESC`,
+        mp.id, mp.judul, mp.video_url, mp.deskripsi, mp.file_url,
+        mp.judul_penugasan, mp.bank_soal_id, mp.created_at,
+        p.langkah_aktif, p.pdf_selesai, p.video_selesai, p.status_selesai,
+        u.photo_url AS guru_foto
+          FROM module_pembelajaran mp
+          LEFT JOIN progress_materi p ON p.materi_id = mp.id AND p.user_id = $1
+          LEFT JOIN users u ON u.id = mp.guru_id
+          WHERE mp.kelas_id = $2
+          ORDER BY mp.created_at DESC`,
       [userId, kelasId],
     );
     res.json(rows);
@@ -249,6 +249,21 @@ router.get("/parent/kelas/:kelasId", verifyToken, async (req, res) => {
   }
 });
 
+/* ================= GET BANK SOAL LIST (for reuse in Select) ================= */
+router.get("/bank-soal/list", verifyToken, async (req, res) => {
+  try {
+    const guruId = req.users.id;
+    const { rows } = await pool.query(
+      `SELECT id, judul_penugasan FROM bank_soal WHERE guru_id = $1 ORDER BY id DESC`,
+      [guruId],
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("GET BANK SOAL LIST ERROR:", err);
+    res.status(500).json({ message: "Failed to retrieve bank soal" });
+  }
+});
+
 /* ================= GET PDF ================= */
 router.get("/:id/pdf", async (req, res) => {
   try {
@@ -282,21 +297,25 @@ router.post("/", verifyToken, uploadUnified.any(), async (req, res) => {
       pass_code,
       kelas_ids,
       soal_list,
+      existing_bank_soal_id, // NEW
     } = bodyData;
 
     const materiFile = req.files.find((f) => f.fieldname === "file");
-    if (!materiFile) {
-      return res.status(400).json({ message: "PDF materi wajib diunggah" });
-    }
 
     const guru_id = req.users.id;
-    const file_url = `/uploads/materi/${materiFile.filename}`;
+    const file_url = materiFile
+      ? `/uploads/materi/${materiFile.filename}`
+      : null; // NEW: optional
     const materi_uuid = uuidv4();
 
     await client.query("BEGIN");
 
     let newBankSoalId = null;
-    if (soal_list && soal_list.length > 0) {
+
+    if (existing_bank_soal_id) {
+      // NEW: reuse an existing bank instead of creating one
+      newBankSoalId = existing_bank_soal_id;
+    } else if (soal_list && soal_list.length > 0) {
       const bankSoalRes = await client.query(
         `INSERT INTO bank_soal (judul_penugasan, guru_id) VALUES ($1, $2) RETURNING id`,
         [judul_penugasan || `Tugas: ${judul}`, guru_id],
